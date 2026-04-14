@@ -62,9 +62,10 @@ period = st.sidebar.selectbox("Time Period", ["1mo", "3mo", "6mo", "1y"])
 def get_data(symbol, period):
     stock = yf.Ticker(symbol)
     hist = stock.history(period=period)
-    return stock, hist
+    news = stock.news
+    return hist, news
 
-stock, hist = get_data(stock_symbol, period)
+hist, news = get_data(stock_symbol, period)
 
 # ------------------------------
 # STOCK CHART
