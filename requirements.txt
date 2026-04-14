@@ -1,6 +1,6 @@
 streamlit
 yfinance
 plotly
-transformers==4.36.2
-torch==2.0.0
+transformers
+torch
 sentencepiece
