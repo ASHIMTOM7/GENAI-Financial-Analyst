@@ -19,7 +19,10 @@ st.set_page_config(
 @st.cache_resource
 def load_models():
     sentiment = pipeline("sentiment-analysis")
-    summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+    summarizer = pipeline(
+    task="summarization",
+    model="sshleifer/distilbart-cnn-12-6",
+    framework="pt")
     return sentiment, summarizer
 
 sentiment_pipeline, summarizer_pipeline = load_models()
