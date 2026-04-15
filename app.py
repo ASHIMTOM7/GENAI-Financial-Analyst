@@ -11,7 +11,7 @@ import numpy as np
 st.set_page_config(page_title="Gen AI Financial Analyst", layout="wide")
 
 # ------------------------------
-# SENTIMENT MODEL
+# LOAD MODEL
 # ------------------------------
 @st.cache_resource
 def load_model():
@@ -20,18 +20,31 @@ def load_model():
 sentiment_pipeline = load_model()
 
 # ------------------------------
+# STOCK LIST (DROPDOWN)
+# ------------------------------
+stock_list = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
+    "META", "NVDA", "NFLX", "AMD",
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS",
+    "ICICIBANK.NS", "SBIN.NS", "WIPRO.NS"
+]
+
+# ------------------------------
 # SIDEBAR
 # ------------------------------
 st.sidebar.header("🔍 Controls")
 
-stock_symbol = st.sidebar.text_input("Search Stock Symbol", "AAPL")
+selected_stock = st.sidebar.selectbox("Select Stock", stock_list)
+custom_stock = st.sidebar.text_input("Or Enter Custom Symbol")
+
+stock_symbol = custom_stock if custom_stock else selected_stock
 
 interval = st.sidebar.selectbox(
     "Interval",
     ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
 )
 
-# Auto period handling
+# Auto period
 if interval == "1m":
     period = "7d"
 elif interval in ["5m", "15m", "30m"]:
@@ -42,7 +55,7 @@ else:
     period = "1y"
 
 # ------------------------------
-# FETCH DATA (WITH RATE LIMIT FIX)
+# FETCH DATA (SAFE)
 # ------------------------------
 @st.cache_data(ttl=300)
 def get_data(symbol, period, interval):
@@ -57,7 +70,7 @@ def get_data(symbol, period, interval):
 hist, news, error = get_data(stock_symbol, period, interval)
 
 # ------------------------------
-# FALLBACK DATA (IMPORTANT)
+# FALLBACK DATA
 # ------------------------------
 if error or hist is None or hist.empty:
     st.warning("⚠️ API limit reached. Showing demo data.")
@@ -92,28 +105,28 @@ fig = go.Figure(data=[go.Candlestick(
 )])
 
 fig.update_layout(template="plotly_dark", height=500)
-
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------
-# RSI CALCULATION
+# RSI
 # ------------------------------
 def compute_rsi(data, window=14):
     delta = data.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(window).mean()
-    avg_loss = loss.rolling(window).mean()
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    rs = gain.rolling(window).mean() / loss.rolling(window).mean()
+    return 100 - (100 / (1 + rs))
 
 hist["RSI"] = compute_rsi(hist["Close"])
 
+st.subheader("📊 RSI Indicator")
+fig_rsi = go.Figure()
+fig_rsi.add_trace(go.Scatter(x=hist.index, y=hist["RSI"], name="RSI"))
+fig_rsi.update_layout(template="plotly_dark", height=300)
+st.plotly_chart(fig_rsi, use_container_width=True)
+
 # ------------------------------
-# MACD CALCULATION
+# MACD
 # ------------------------------
 def compute_macd(data):
     exp1 = data.ewm(span=12, adjust=False).mean()
@@ -124,35 +137,20 @@ def compute_macd(data):
 
 hist["MACD"], hist["Signal"] = compute_macd(hist["Close"])
 
-# ------------------------------
-# RSI CHART
-# ------------------------------
-st.subheader("📊 RSI Indicator")
-
-fig_rsi = go.Figure()
-fig_rsi.add_trace(go.Scatter(x=hist.index, y=hist["RSI"], name="RSI"))
-
-fig_rsi.update_layout(template="plotly_dark", height=300)
-st.plotly_chart(fig_rsi, use_container_width=True)
-
-# ------------------------------
-# MACD CHART
-# ------------------------------
 st.subheader("📉 MACD Indicator")
-
 fig_macd = go.Figure()
 fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["MACD"], name="MACD"))
 fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["Signal"], name="Signal"))
-
 fig_macd.update_layout(template="plotly_dark", height=300)
 st.plotly_chart(fig_macd, use_container_width=True)
 
 # ------------------------------
-# METRICS
+# METRICS (FIXED)
 # ------------------------------
-if not hist.empty:
+if hist is not None and not hist.empty:
     col1, col2, col3 = st.columns(3)
-    col1.metric("Latest", f"${hist['Close'][-1]:.2f}")
+
+    col1.metric("Latest", f"${hist['Close'].iloc[-1]:.2f}")
     col2.metric("High", f"${hist['High'].max():.2f}")
     col3.metric("Low", f"${hist['Low'].min():.2f}")
 
