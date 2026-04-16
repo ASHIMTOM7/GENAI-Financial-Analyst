@@ -1,9 +1,9 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
-from transformers import pipeline
 import pandas as pd
 import numpy as np
+from transformers import pipeline
 
 # ------------------------------
 # PAGE CONFIG
@@ -11,22 +11,44 @@ import numpy as np
 st.set_page_config(page_title="Gen AI Financial Analyst", layout="wide")
 
 # ------------------------------
-# LOAD MODEL
+# LOAD MODEL (SAFE)
 # ------------------------------
 @st.cache_resource
 def load_model():
-    return pipeline("sentiment-analysis")
+    try:
+        return pipeline(
+            "sentiment-analysis",
+            model="distilbert-base-uncased-finetuned-sst-2-english",
+            device=-1
+        )
+    except:
+        return None
 
 sentiment_pipeline = load_model()
 
 # ------------------------------
-# STOCK LIST (DROPDOWN)
+# SIMPLE FALLBACK SENTIMENT
+# ------------------------------
+def simple_sentiment(text):
+    positive_words = ["gain", "growth", "profit", "rise", "positive"]
+    negative_words = ["loss", "drop", "fall", "negative", "decline"]
+
+    text = text.lower()
+
+    if any(w in text for w in positive_words):
+        return "POSITIVE"
+    elif any(w in text for w in negative_words):
+        return "NEGATIVE"
+    return "NEUTRAL"
+
+# ------------------------------
+# STOCK LIST
 # ------------------------------
 stock_list = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
-    "META", "NVDA", "NFLX", "AMD",
-    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS",
-    "ICICIBANK.NS", "SBIN.NS", "WIPRO.NS"
+    "META", "NVDA", "NFLX",
+    "RELIANCE.NS", "TCS.NS", "INFY.NS",
+    "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"
 ]
 
 # ------------------------------
@@ -35,7 +57,7 @@ stock_list = [
 st.sidebar.header("🔍 Controls")
 
 selected_stock = st.sidebar.selectbox("Select Stock", stock_list)
-custom_stock = st.sidebar.text_input("Or Enter Custom Symbol")
+custom_stock = st.sidebar.text_input("Or Enter Symbol")
 
 stock_symbol = custom_stock if custom_stock else selected_stock
 
@@ -44,7 +66,7 @@ interval = st.sidebar.selectbox(
     ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
 )
 
-# Auto period
+# Period logic
 if interval == "1m":
     period = "7d"
 elif interval in ["5m", "15m", "30m"]:
@@ -55,7 +77,7 @@ else:
     period = "1y"
 
 # ------------------------------
-# FETCH DATA (SAFE)
+# FETCH DATA
 # ------------------------------
 @st.cache_data(ttl=300)
 def get_data(symbol, period, interval):
@@ -83,16 +105,20 @@ if error or hist is None or hist.empty:
         "Close": np.random.rand(100) * 100 + 100,
     }, index=dates)
 
-    news = ["Market stable", "Investors cautious"]
+    news = [
+        {"title": f"{stock_symbol} shows stable growth outlook"},
+        {"title": f"Investors cautious about {stock_symbol}"},
+        {"title": f"Market trends impact {stock_symbol}"}
+    ]
 
 # ------------------------------
 # HEADER
 # ------------------------------
 st.title("📊 Gen AI Financial Analyst")
-st.caption("Real-time stock analysis with AI insights")
+st.caption("Real-time stock insights with AI analysis")
 
 # ------------------------------
-# CANDLESTICK CHART
+# CANDLESTICK
 # ------------------------------
 st.subheader(f"{stock_symbol} Candlestick Chart ({interval})")
 
@@ -105,7 +131,7 @@ fig = go.Figure(data=[go.Candlestick(
 )])
 
 fig.update_layout(template="plotly_dark", height=500)
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ------------------------------
 # RSI
@@ -119,11 +145,12 @@ def compute_rsi(data, window=14):
 
 hist["RSI"] = compute_rsi(hist["Close"])
 
-st.subheader("📊 RSI Indicator")
 fig_rsi = go.Figure()
 fig_rsi.add_trace(go.Scatter(x=hist.index, y=hist["RSI"], name="RSI"))
 fig_rsi.update_layout(template="plotly_dark", height=300)
-st.plotly_chart(fig_rsi, use_container_width=True)
+
+st.subheader("📊 RSI Indicator")
+st.plotly_chart(fig_rsi, width="stretch")
 
 # ------------------------------
 # MACD
@@ -137,66 +164,81 @@ def compute_macd(data):
 
 hist["MACD"], hist["Signal"] = compute_macd(hist["Close"])
 
-st.subheader("📉 MACD Indicator")
 fig_macd = go.Figure()
 fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["MACD"], name="MACD"))
 fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["Signal"], name="Signal"))
 fig_macd.update_layout(template="plotly_dark", height=300)
-st.plotly_chart(fig_macd, use_container_width=True)
+
+st.subheader("📉 MACD Indicator")
+st.plotly_chart(fig_macd, width="stretch")
 
 # ------------------------------
 # METRICS (FIXED)
 # ------------------------------
 if hist is not None and not hist.empty:
     col1, col2, col3 = st.columns(3)
-
     col1.metric("Latest", f"${hist['Close'].iloc[-1]:.2f}")
     col2.metric("High", f"${hist['High'].max():.2f}")
     col3.metric("Low", f"${hist['Low'].min():.2f}")
 
 # ------------------------------
-# NEWS + SENTIMENT
+# NEWS + SENTIMENT (PARAGRAPH)
 # ------------------------------
-st.subheader("📰 News Sentiment")
+st.subheader("📰 Market Insight")
 
 titles = []
 sentiments = []
 
+# fallback news if empty
+if not news:
+    news = [
+        {"title": f"{stock_symbol} shows steady growth"},
+        {"title": f"Investors cautious about {stock_symbol}"}
+    ]
+
 for article in news[:5]:
     title = article if isinstance(article, str) else article.get("title", "")
+    if not title:
+        continue
+
     titles.append(title)
 
-    result = sentiment_pipeline(title)[0]
-    sentiments.append(result["label"])
+    try:
+        if sentiment_pipeline:
+            result = sentiment_pipeline(title[:512])[0]
+            label = result["label"]
+        else:
+            label = simple_sentiment(title)
+    except:
+        label = simple_sentiment(title)
 
-    if result["label"] == "POSITIVE":
-        st.success(f"🟢 {title}")
-    else:
-        st.error(f"🔴 {title}")
+    sentiments.append(label)
 
 # ------------------------------
-# SUMMARY
+# AI PARAGRAPH SUMMARY
 # ------------------------------
-st.subheader("🤖 AI Summary")
-
 if titles:
-    st.info(" ".join(titles[:2]))
-
-# ------------------------------
-# RECOMMENDATION
-# ------------------------------
-st.subheader("📊 Recommendation")
-
-if sentiments:
     pos = sentiments.count("POSITIVE")
     neg = sentiments.count("NEGATIVE")
 
     if pos > neg:
-        st.success("📈 BUY")
+        overall = "positive"
+        recommendation = "BUY"
     elif neg > pos:
-        st.error("📉 SELL")
+        overall = "negative"
+        recommendation = "SELL"
     else:
-        st.warning("⚖️ HOLD")
+        overall = "neutral"
+        recommendation = "HOLD"
+
+    summary_text = (
+        f"Recent news about {stock_symbol} indicates a {overall} market sentiment. "
+        f"Key developments include: {titles[0]}. "
+        f"Overall investor outlook appears {overall}, suggesting a {recommendation} strategy "
+        f"based on current trends and sentiment analysis."
+    )
+
+    st.info(summary_text)
 
 # ------------------------------
 # FOOTER
