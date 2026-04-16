@@ -190,16 +190,17 @@ if hist is not None and not hist.empty:
 # ------------------------------
 # NEWS + SENTIMENT (PARAGRAPH)
 # ------------------------------
-st.subheader("📰 Market Insight")
+st.subheader("📰 News Sentiment")
 
 titles = []
 sentiments = []
 
-# fallback news if empty
+# fallback news
 if not news:
     news = [
-        {"title": f"{stock_symbol} shows steady growth"},
-        {"title": f"Investors cautious about {stock_symbol}"}
+        {"title": f"{stock_symbol} shows steady growth outlook"},
+        {"title": f"Investors remain cautious about {stock_symbol}"},
+        {"title": f"Market trends influence {stock_symbol} performance"}
     ]
 
 for article in news[:5]:
@@ -209,10 +210,10 @@ for article in news[:5]:
 
     titles.append(title)
 
+    # sentiment (safe)
     try:
         if sentiment_pipeline:
-            result = sentiment_pipeline(title[:512])[0]
-            label = result["label"]
+            label = sentiment_pipeline(title[:512])[0]["label"]
         else:
             label = simple_sentiment(title)
     except:
@@ -221,30 +222,55 @@ for article in news[:5]:
     sentiments.append(label)
 
 # ------------------------------
-# AI PARAGRAPH SUMMARY
+# SENTIMENT PARAGRAPH
 # ------------------------------
 if titles:
     pos = sentiments.count("POSITIVE")
     neg = sentiments.count("NEGATIVE")
 
     if pos > neg:
+        sentiment_text = (
+            f"Recent news surrounding {stock_symbol} indicates a generally positive sentiment. "
+            f"Most headlines reflect optimism and potential growth in the market."
+        )
+    elif neg > pos:
+        sentiment_text = (
+            f"Recent news surrounding {stock_symbol} indicates a negative sentiment. "
+            f"Several reports highlight risks and declining investor confidence."
+        )
+    else:
+        sentiment_text = (
+            f"Recent news surrounding {stock_symbol} suggests a neutral sentiment. "
+            f"Market signals appear mixed with no clear directional bias."
+        )
+
+    st.info(sentiment_text)
+
+# ------------------------------
+# AI SUMMARY (SEPARATE PARAGRAPH)
+# ------------------------------
+st.subheader("🤖 AI Summary")
+
+if titles:
+    overall = "neutral"
+    recommendation = "HOLD"
+
+    if sentiments.count("POSITIVE") > sentiments.count("NEGATIVE"):
         overall = "positive"
         recommendation = "BUY"
-    elif neg > pos:
+    elif sentiments.count("NEGATIVE") > sentiments.count("POSITIVE"):
         overall = "negative"
         recommendation = "SELL"
-    else:
-        overall = "neutral"
-        recommendation = "HOLD"
 
     summary_text = (
-        f"Recent news about {stock_symbol} indicates a {overall} market sentiment. "
+        f"Based on combined technical indicators and news analysis, {stock_symbol} shows a {overall} outlook. "
         f"Key developments include: {titles[0]}. "
-        f"Overall investor outlook appears {overall}, suggesting a {recommendation} strategy "
-        f"based on current trends and sentiment analysis."
+        f"Investors may consider a {recommendation} strategy depending on risk tolerance."
     )
 
-    st.info(summary_text)
+    st.success(summary_text)
+else:
+    st.warning("No sufficient data available for summary.")
 
 # ------------------------------
 # FOOTER - last
