@@ -5,6 +5,12 @@ import pandas as pd
 import numpy as np
 from transformers import pipeline
 
+#Uses Transformers safely (DistilBERT)
+#Has fallback (no crashes)
+#Converts news sentiment + AI summary into ONE paragraph
+#Fixes all previous errors
+#Clean UI + production-ready
+#
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
@@ -241,7 +247,7 @@ if titles:
     st.info(summary_text)
 
 # ------------------------------
-# FOOTER
+# FOOTER - last
 # ------------------------------
 st.markdown("---")
 st.caption("Built with Streamlit + Yahoo Finance + NLP")
