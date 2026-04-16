@@ -1,133 +1,81 @@
 import streamlit as st
 import yfinance as yf
-import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from transformers import pipeline
+import plotly.graph_objects as go
 
-#Uses Transformers safely (DistilBERT)
-#Has fallback (no crashes)
-#Converts news sentiment + AI summary into ONE paragraph
-#Fixes all previous errors
-#Clean UI + production-ready
-#
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
-st.set_page_config(page_title="Gen AI Financial Analyst", layout="wide")
+st.set_page_config(page_title="GenAI Financial Analyst", layout="wide")
+
+st.title("📈 GenAI Financial Analyst Dashboard")
 
 # ------------------------------
-# LOAD MODEL (SAFE)
+# LOAD TRANSFORMERS (SAFE)
 # ------------------------------
 @st.cache_resource
-def load_model():
+def load_models():
     try:
-        return pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1
-        )
+        from transformers import pipeline
+        sentiment = pipeline("sentiment-analysis")
+        summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+        return sentiment, summarizer
     except:
-        return None
+        return None, None
 
-sentiment_pipeline = load_model()
+sentiment_pipeline, summarizer_pipeline = load_models()
 
 # ------------------------------
-# SIMPLE FALLBACK SENTIMENT
+# SIMPLE SENTIMENT (FALLBACK)
 # ------------------------------
 def simple_sentiment(text):
-    positive_words = ["gain", "growth", "profit", "rise", "positive"]
-    negative_words = ["loss", "drop", "fall", "negative", "decline"]
-
     text = text.lower()
+    pos_words = ["gain", "rise", "up", "growth", "positive", "profit"]
+    neg_words = ["fall", "drop", "loss", "negative", "decline"]
 
-    if any(w in text for w in positive_words):
+    score = sum(w in text for w in pos_words) - sum(w in text for w in neg_words)
+
+    if score > 0:
         return "POSITIVE"
-    elif any(w in text for w in negative_words):
+    elif score < 0:
         return "NEGATIVE"
     return "NEUTRAL"
 
 # ------------------------------
 # STOCK LIST
 # ------------------------------
-stock_list = [
+stocks = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
-    "META", "NVDA", "NFLX",
-    "RELIANCE.NS", "TCS.NS", "INFY.NS",
-    "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"
 ]
 
-# ------------------------------
-# SIDEBAR
-# ------------------------------
-st.sidebar.header("🔍 Controls")
+stock_symbol = st.selectbox("Select Stock", stocks)
 
-selected_stock = st.sidebar.selectbox("Select Stock", stock_list)
-custom_stock = st.sidebar.text_input("Or Enter Symbol")
-
-stock_symbol = custom_stock if custom_stock else selected_stock
-
-interval = st.sidebar.selectbox(
-    "Interval",
-    ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
-)
-
-# Period logic
-if interval == "1m":
-    period = "7d"
-elif interval in ["5m", "15m", "30m"]:
-    period = "60d"
-elif interval == "1h":
-    period = "1y"
-else:
-    period = "1y"
+period = st.selectbox("Time Period", ["1d", "5d", "1mo", "6mo", "1y"])
 
 # ------------------------------
-# FETCH DATA
+# FETCH DATA (SAFE)
 # ------------------------------
-@st.cache_data(ttl=300)
-def get_data(symbol, period, interval):
+@st.cache_data
+def get_data(symbol, period):
     try:
         stock = yf.Ticker(symbol)
-        hist = stock.history(period=period, interval=interval)
-        news = stock.news if stock.news else []
-        return hist, news, None
-    except Exception as e:
-        return None, None, str(e)
+        hist = stock.history(period=period)
+        news = getattr(stock, "news", [])
+        return hist, news
+    except:
+        return pd.DataFrame(), []
 
-hist, news, error = get_data(stock_symbol, period, interval)
+hist, news = get_data(stock_symbol, period)
 
-# ------------------------------
-# FALLBACK DATA
-# ------------------------------
-if error or hist is None or hist.empty:
-    st.warning("⚠️ API limit reached. Showing demo data.")
-
-    dates = pd.date_range(end=pd.Timestamp.today(), periods=100)
-    hist = pd.DataFrame({
-        "Open": np.random.rand(100) * 100 + 100,
-        "High": np.random.rand(100) * 100 + 120,
-        "Low": np.random.rand(100) * 100 + 90,
-        "Close": np.random.rand(100) * 100 + 100,
-    }, index=dates)
-
-    news = [
-        {"title": f"{stock_symbol} shows stable growth outlook"},
-        {"title": f"Investors cautious about {stock_symbol}"},
-        {"title": f"Market trends impact {stock_symbol}"}
-    ]
+if hist.empty:
+    st.error("No data available. Try another stock.")
+    st.stop()
 
 # ------------------------------
-# HEADER
+# CANDLESTICK CHART
 # ------------------------------
-st.title("📊 Gen AI Financial Analyst")
-st.caption("Real-time stock insights with AI analysis")
-
-# ------------------------------
-# CANDLESTICK
-# ------------------------------
-st.subheader(f"{stock_symbol} Candlestick Chart ({interval})")
-
 fig = go.Figure(data=[go.Candlestick(
     x=hist.index,
     open=hist["Open"],
@@ -136,71 +84,60 @@ fig = go.Figure(data=[go.Candlestick(
     close=hist["Close"]
 )])
 
-fig.update_layout(template="plotly_dark", height=500)
+fig.update_layout(title="Candlestick Chart", xaxis_rangeslider_visible=False)
 st.plotly_chart(fig, width="stretch")
 
 # ------------------------------
 # RSI
 # ------------------------------
-def compute_rsi(data, window=14):
-    delta = data.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    rs = gain.rolling(window).mean() / loss.rolling(window).mean()
-    return 100 - (100 / (1 + rs))
+delta = hist["Close"].diff()
+gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
 
-hist["RSI"] = compute_rsi(hist["Close"])
-
-fig_rsi = go.Figure()
-fig_rsi.add_trace(go.Scatter(x=hist.index, y=hist["RSI"], name="RSI"))
-fig_rsi.update_layout(template="plotly_dark", height=300)
-
-st.subheader("📊 RSI Indicator")
-st.plotly_chart(fig_rsi, width="stretch")
+rs = gain / loss
+hist["RSI"] = 100 - (100 / (1 + rs))
 
 # ------------------------------
 # MACD
 # ------------------------------
-def compute_macd(data):
-    exp1 = data.ewm(span=12, adjust=False).mean()
-    exp2 = data.ewm(span=26, adjust=False).mean()
-    macd = exp1 - exp2
-    signal = macd.ewm(span=9, adjust=False).mean()
-    return macd, signal
+exp1 = hist["Close"].ewm(span=12).mean()
+exp2 = hist["Close"].ewm(span=26).mean()
+hist["MACD"] = exp1 - exp2
+hist["Signal"] = hist["MACD"].ewm(span=9).mean()
 
-hist["MACD"], hist["Signal"] = compute_macd(hist["Close"])
+col1, col2 = st.columns(2)
 
-fig_macd = go.Figure()
-fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["MACD"], name="MACD"))
-fig_macd.add_trace(go.Scatter(x=hist.index, y=hist["Signal"], name="Signal"))
-fig_macd.update_layout(template="plotly_dark", height=300)
+with col1:
+    st.line_chart(hist["RSI"])
 
-st.subheader("📉 MACD Indicator")
-st.plotly_chart(fig_macd, width="stretch")
+with col2:
+    st.line_chart(hist[["MACD", "Signal"]])
 
 # ------------------------------
-# METRICS (FIXED)
+# METRICS (SAFE INDEXING)
 # ------------------------------
-if hist is not None and not hist.empty:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Latest", f"${hist['Close'].iloc[-1]:.2f}")
-    col2.metric("High", f"${hist['High'].max():.2f}")
-    col3.metric("Low", f"${hist['Low'].min():.2f}")
+latest_price = hist["Close"].iloc[-1]
+prev_price = hist["Close"].iloc[-2] if len(hist) > 1 else latest_price
+change = latest_price - prev_price
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Price", f"${latest_price:.2f}", f"{change:.2f}")
+col2.metric("RSI", f"{hist['RSI'].iloc[-1]:.2f}")
+col3.metric("MACD", f"{hist['MACD'].iloc[-1]:.2f}")
 
 # ------------------------------
-# NEWS + SENTIMENT (PARAGRAPH)
+# NEWS + SENTIMENT
 # ------------------------------
-st.subheader("📰 News Sentiment")
+st.subheader("📰 Market Insight")
 
 titles = []
 sentiments = []
 
-# fallback news
 if not news:
     news = [
         {"title": f"{stock_symbol} shows steady growth outlook"},
-        {"title": f"Investors remain cautious about {stock_symbol}"},
-        {"title": f"Market trends influence {stock_symbol} performance"}
+        {"title": f"Investors cautious about {stock_symbol}"},
+        {"title": f"Market trends impact {stock_symbol}"}
     ]
 
 for article in news[:5]:
@@ -210,70 +147,51 @@ for article in news[:5]:
 
     titles.append(title)
 
-    # sentiment (safe)
     try:
         if sentiment_pipeline:
-            label = sentiment_pipeline(title[:512])[0]["label"]
+            label = sentiment_pipeline(title[:512])[0]["label"].upper()
         else:
-            label = simple_sentiment(title)
+            raise Exception()
     except:
         label = simple_sentiment(title)
 
     sentiments.append(label)
 
 # ------------------------------
-# SENTIMENT PARAGRAPH
+# OUTPUT LOGIC
 # ------------------------------
 if titles:
     pos = sentiments.count("POSITIVE")
     neg = sentiments.count("NEGATIVE")
 
     if pos > neg:
-        sentiment_text = (
-            f"Recent news surrounding {stock_symbol} indicates a generally positive sentiment. "
-            f"Most headlines reflect optimism and potential growth in the market."
-        )
-    elif neg > pos:
-        sentiment_text = (
-            f"Recent news surrounding {stock_symbol} indicates a negative sentiment. "
-            f"Several reports highlight risks and declining investor confidence."
-        )
-    else:
-        sentiment_text = (
-            f"Recent news surrounding {stock_symbol} suggests a neutral sentiment. "
-            f"Market signals appear mixed with no clear directional bias."
-        )
-
-    st.info(sentiment_text)
-
-# ------------------------------
-# AI SUMMARY (SEPARATE PARAGRAPH)
-# ------------------------------
-st.subheader("🤖 AI Summary")
-
-if titles:
-    overall = "neutral"
-    recommendation = "HOLD"
-
-    if sentiments.count("POSITIVE") > sentiments.count("NEGATIVE"):
-        overall = "positive"
+        sentiment_line = f"{stock_symbol} shows positive market sentiment."
         recommendation = "BUY"
-    elif sentiments.count("NEGATIVE") > sentiments.count("POSITIVE"):
-        overall = "negative"
+    elif neg > pos:
+        sentiment_line = f"{stock_symbol} shows negative market sentiment."
         recommendation = "SELL"
+    else:
+        sentiment_line = f"{stock_symbol} shows neutral market sentiment."
+        recommendation = "HOLD"
 
-    summary_text = (
-        f"Based on combined technical indicators and news analysis, {stock_symbol} shows a {overall} outlook. "
-        f"Key developments include: {titles[0]}. "
-        f"Investors may consider a {recommendation} strategy depending on risk tolerance."
-    )
+    # AI SUMMARY
+    try:
+        if summarizer_pipeline:
+            text = " ".join(titles[:3])
+            summary = summarizer_pipeline(
+                text[:1000],
+                max_length=40,
+                min_length=15,
+                do_sample=False
+            )[0]["summary_text"]
+        else:
+            raise Exception()
+    except:
+        summary = f"{stock_symbol} outlook remains {recommendation.lower()} based on current indicators."
 
-    st.success(summary_text)
+    st.info(f"📰 Sentiment: {sentiment_line}")
+    st.success(f"🤖 AI Summary: {summary}")
+    st.metric("📊 Recommendation", recommendation)
+
 else:
-    st.warning("No sufficient data available for summary.")
-
-# ------------------------------
-# FOOTER - last
-# ------------------------------
-st.markdown("---")
-st.caption("Built with Streamlit + Yahoo Finance + NLP")
+    st.warning("No news available.")
