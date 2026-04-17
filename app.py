@@ -217,4 +217,4 @@ financial advisor before making any investment decisions.
 """)
 
 # optional footer
-st.caption("© 2026 GenAI Financial Analyst | Built with AI & Data Science")
+st.caption("© 2026 GenAI Financial Analyst | Built with Github Streamlit")
