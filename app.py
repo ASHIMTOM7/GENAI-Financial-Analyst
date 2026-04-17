@@ -197,3 +197,24 @@ summary = (
 st.info(f"📰 Sentiment: {sentiment_line}")
 st.success(f"🤖 AI Summary: {summary}")
 st.metric("📊 Recommendation", recommendation)
+
+st.markdown("---")
+st.markdown("### ⚠️ Disclaimer")
+
+st.warning("""
+The information provided by this application is for educational and informational purposes only. 
+Stock market investments are subject to high levels of risk and volatility. 
+
+This application does not provide financial, investment, or trading advice. 
+Any decisions made based on the insights, analysis, sentiment, or recommendations generated 
+by this system are solely at the user's own risk.
+
+The developers of this application shall not be held responsible for any financial losses, 
+damages, or consequences incurred as a result of using this platform.
+
+Users are strongly advised to conduct their own research and consult with a qualified 
+financial advisor before making any investment decisions.
+""")
+
+# optional footer
+st.caption("© 2026 GenAI Financial Analyst | Built with AI & Data Science")
